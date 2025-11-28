@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Offline Chat Multi-Device</title>
+<link rel="manifest" href="manifest.json">
+<style>
+/* --- CSS All-in-One: Dark/Light, Chat Bubble, Responsive, Auto-expand Textarea --- */
+:root{
+  --bg-light:#f5f5f7; --bg-dark:#1e1e1e;
+  --header-light:#10A37F; --header-dark:#0f8f6e;
+  --user-gradient-light:linear-gradient(135deg,#9df3c4,#10a37f);
+  --user-gradient-dark:linear-gradient(135deg,#0f9b7e,#05675b);
+  --bot-gradient-light:linear-gradient(135deg,#f0f0f0,#dcdcdc);
+  --bot-gradient-dark:linear-gradient(135deg,#2e2e2e,#3a3a3a);
+  --text-light:#000; --text-dark:#fff;
+}
+body{margin:0;font-family:'Segoe UI',Tahoma,sans-serif;display:flex;flex-direction:column;height:100vh;background:var(--bg-light);color:var(--text-light);}
+body.dark{background:var(--bg-dark);color:var(--text-dark);}
+header{padding:15px;text-align:center;font-size:24px;font-weight:bold;background:var(--header-light);color:white;position:relative;}
+body.dark header{background:var(--header-dark);}
+main{flex:1;display:flex;flex-direction:column;padding:10px;overflow-y:auto;scroll-behavior:smooth;background:var(--bg-light);}
+body.dark main{background:#121212;}
+textarea,button{padding:10px;margin:5px 0;font-size:16px;border-radius:12px;border:1px solid #ccc;box-sizing:border-box;}
+button{background:var(--header-light);color:white;border:none;cursor:pointer;transition:0.3s;}
+body.dark button{background:var(--header-dark);}
+button:hover{opacity:0.9;}
+.chat-container{flex:1;display:flex;flex-direction:column;overflow-y:auto;padding:10px;border-radius:16px;box-shadow:0 4px 16px rgba(0,0,0,0.1);}
+body.dark .chat-container{background:#1a1a1a;}
+.message{max-width:75%;margin:8px 0;padding:12px 18px;border-radius:20px;word-wrap:break-word;opacity:0;transform:translateY(20px);animation:fadeIn 0.3s forwards;box-shadow:0 2px 8px rgba(0,0,0,0.05);}
+.user{align-self:flex-end;background:var(--user-gradient-light);color:var(--text-light);}
+body.dark .user{background:var(--user-gradient-dark);color:var(--text-dark);}
+.bot{align-self:flex-start;background:var(--bot-gradient-light);color:var(--text-light);position:relative;}
+body.dark .bot{background:var(--bot-gradient-dark);color:var(--text-dark);}
+.bot .dots{display:inline-block;width:24px;text-align:left;}
+.bot .dots span{display:inline-block;animation:blink 1s infinite;margin-right:2px;}
+.bot .dots span:nth-child(2){animation-delay:0.2s;}
+.bot .dots span:nth-child(3){animation-delay:0.4s;}
+@keyframes fadeIn{to{opacity:1;transform:translateY(0);}}
+@keyframes blink{0%,80%,100%{opacity:0}40%{opacity:1}}
+footer{padding:10px;background:#f0f0f0;display:flex;gap:10px;flex-wrap:wrap;}
+body.dark footer{background:#1b1b1b;}
+textarea#inputBox{flex:1;resize:none;border-radius:16px;color:inherit;background:inherit;border:1px solid #555;overflow:hidden;min-height:40px;max-height:200px;}
+main::-webkit-scrollbar{width:6px;}
+main::-webkit-scrollbar-thumb{background:#aaa;border-radius:3px;}
+main::-webkit-scrollbar-track{background:var(--bg-light);}
+body.dark main::-webkit-scrollbar-track{background:#1e1e1e;}
+@media(max-width:600px){.message{max-width:90%;}textarea,button{font-size:14px;}}
+.dark-toggle-btn{position:absolute;right:10px;top:10px;padding:5px 10px;font-size:14px;cursor:pointer;background:rgba(0,0,0,0.2);border:none;border-radius:8px;color:white;}
+body.dark .dark-toggle-btn{background:rgba(255,255,255,0.2);color:white;}
+</style>
+</head>
+<body>
+
+<header>AI Multi-Device
+  <button class="dark-toggle-btn" onclick="manualToggleDarkMode()">🌙</button>
+</header>
+
+<main class="chat-container" id="chatContainer">
+  <div class="bot message">Chào bạn! Tôi hỗ trợ AI offline + đồng bộ multi-device.</div>
+</main>
+
+<footer>
+<textarea id="inputBox" rows="2" placeholder="Nhập lệnh hoặc câu hỏi..."></textarea>
+<button onclick="sendMessage()">Gửi</button>
+<button onclick="clearChat()">Clear Chat</button>
+<button onclick="exportChat()">Export JSON</button>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.9.0/math.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<script>
+// ===== Firebase config =====
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "SENDER_ID",
+  appId: "APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const userId = localStorage.getItem('userId') || (Math.random().toString(36).substr(2,9));
+localStorage.setItem('userId', userId);
+
+// ===== Dark Mode =====
+let darkMode=null;
+function setAutoDarkMode(){const h=new Date().getHours(); if(darkMode===null){ if(h>=18||h<6) document.body.classList.add('dark'); else document.body.classList.remove('dark');}}
+setAutoDarkMode(); setInterval(setAutoDarkMode,60000);
+function manualToggleDarkMode(){darkMode=!document.body.classList.contains('dark');document.body.classList.toggle('dark',darkMode);}
+
+// ===== Chat =====
+const chat=document.getElementById('chatContainer');
+function addMessage(text,sender,isTyping=false){
+  const div=document.createElement('div'); div.className=sender+" message";
+  if(isTyping){div.innerHTML='<span class="dots"><span>.</span><span>.</span><span>.</span></span>';}
+  else{div.innerText=text;}
+  chat.appendChild(div); chat.scrollTop=chat.scrollHeight; return div;
+}
+function sendMessage(){
+  const input=document.getElementById('inputBox'); 
+  let text=input.value.trim(); 
+  if(!text) return; 
+  addMessage(text,'user'); 
+  input.value=''; input.style.height='auto'; 
+  saveMessageToFirebase('user',text); 
+  setTimeout(()=>processInput(text),200);
+}
+function processInput(text){
+  const typingMessage=addMessage('','bot',true); 
+  setTimeout(()=>{
+    let resp=generateResponse(text); 
+    typingMessage.innerHTML=resp; 
+    saveMessageToFirebase('bot',resp);
+
+    // Tạo link chia sẻ
+    const link = generateChatLink(text, resp);
+    const linkEl = document.createElement('a');
+    linkEl.href = link;
+    linkEl.innerText = "🔗 Tạo link cuộc trò chuyện";
+    linkEl.target="_blank";
+    typingMessage.appendChild(document.createElement('br'));
+    typingMessage.appendChild(linkEl);
+
+  },800+Math.random()*800);
+}
+
+// ===== AI Offline Logic =====
+function generateResponse(text){
+  text=text.toLowerCase();
+  try{
+    if(text.startsWith('tính')||text.startsWith('calc')||text.match(/[0-9\+\-\*\/\(\)]/)){
+      let expr=text.replace(/tính|calc/gi,'').trim();
+      let result=math.evaluate(expr);
+      return `Kết quả: ${result}`;
+    }
+    if(text.includes('linear search')){
+      const nums=text.match(/\d+/g)?.map(Number)||[];
+      const x=nums.pop();
+      const a=nums;
+      let pos=-1;
+      for(let i=0;i<a.length;i++){if(a[i]===x){pos=i;break;}}
+      return pos!==-1?`Linear Search: Tìm thấy ${x} ở vị trí ${pos}`:`Linear Search: Không tìm thấy ${x}`;
+    }
+    if(text.includes('binary search')){
+      let nums=text.match(/\d+/g)?.map(Number)||[];
+      let x=nums.pop();
+      let a=nums.sort((m,n)=>m-n);
+      let left=0,right=a.length-1,pos=-1;
+      while(left<=right){let mid=Math.floor((left+right)/2); if(a[mid]===x){pos=mid;break;} else if(a[mid]<x) left=mid+1; else right=mid-1;}
+      return pos!==-1?`Binary Search: Tìm thấy ${x} ở vị trí ${pos} (mảng đã sắp xếp)`:`Binary Search: Không tìm thấy ${x}`;
+    }
+    if(text.includes('giải thích')||text.includes('thuật toán')){
+      if(text.includes('linear')) return "Linear Search: Duyệt từng phần tử để tìm giá trị.";
+      else if(text.includes('binary')) return "Binary Search: Chỉ chạy trên mảng đã sắp xếp, chia đôi mảng để tìm giá trị.";
+      else if(text.includes('quick')) return "Quick Sort: Chọn pivot, chia mảng, sắp xếp đệ quy.";
+      else return "Chưa có thông tin thuật toán này.";
+    }
+    return "Xin lỗi, tôi chưa hiểu. Thử: tính 2+3*4, linear search 1 3 5 7 3, hoặc giải thích binary search.";
+  }catch(e){return "Lỗi: "+e.message;}
+}
+
+// ===== Tạo link chat =====
+function generateChatLink(question, answer){
+  const data = {q: question, a: answer, t: Date.now()};
+  const encoded = encodeURIComponent(btoa(JSON.stringify(data)));
+  return `${window.location.origin}${window.location.pathname}?chat=${encoded}`;
+}
+window.addEventListener('load', ()=>{
+  const params = new URLSearchParams(window.location.search);
+  if(params.has('chat')){
+    try{
+      const decoded = JSON.parse(atob(params.get('chat')));
+      addMessage(decoded.q,'user');
+      addMessage(decoded.a,'bot');
+    }catch(e){console.log("Không thể giải mã chat link");}
+  }
+});
+
+// ===== Firebase Sync Multi-Device =====
+function saveMessageToFirebase(sender,text){ db.collection('chats').add({userId,sender,text,timestamp:firebase.firestore.FieldValue.serverTimestamp()}); }
+db.collection('chats').where('userId','==',userId).orderBy('timestamp').onSnapshot(snapshot=>{chat.innerHTML=''; snapshot.forEach(doc=>addMessage(doc.data().text,doc.data().sender));});
+
+// ===== Clear / Export =====
+function clearChat(){if(confirm("Bạn có chắc muốn xóa toàn bộ chat không?")){db.collection('chats').where('userId','==',userId).get().then(snapshot=>{snapshot.forEach(doc=>doc.ref.delete());}); chat.innerHTML=''; addMessage("Chat đã xóa.",'bot');}}
+function exportChat(){db.collection('chats').where('userId','==',userId).get().then(snapshot=>{const history=[]; snapshot.forEach(doc=>history.push(doc.data())); if(history.length===0){alert("Chưa có dữ liệu");return;} const blob=new Blob([JSON.stringify(history,null,2)],{type:"application/json"}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download="chat_history.json"; a.click();});}
+
+// ===== Auto-expand textarea =====
+const inputBox = document.getElementById('inputBox');
+inputBox.addEventListener('input', e => {
+  inputBox.style.height = 'auto';
+  inputBox.style.height = inputBox.scrollHeight + 'px';
+});
+
+// ===== PWA Service Worker Inline =====
+if('serviceWorker' in navigator){
+  const swBlob = new Blob([`
+    const CACHE_NAME = "ai-chat-cache-v1";
+    const urlsToCache = ["./","ai_chat.html"];
+    self.addEventListener("install", event => { event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.addAll(urlsToCache))); });
+    self.addEventListener("fetch", event => { event.respondWith(caches.match(event.request).then(resp=>resp||fetch(event.request))); });
+  `], {type:'application/javascript'});
+  const swUrl = URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swUrl).then(()=>console.log("Service Worker đăng ký")).catch(err=>console.log(err));
+}
+</script>
+
+</body>
+</html>
